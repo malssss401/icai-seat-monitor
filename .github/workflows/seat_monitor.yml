@@ -1,32 +1,105 @@
+# .github/workflows/monitor.yml
+#
+# ICAI Seat Monitor — Production Workflow
+# =========================================
+# Runs every 5 minutes via cron.
+# Each run appears as a separate entry in the Actions tab with its own
+# timestamp — giving you a full history of every check.
+#
+# On seats found OR unexpected error:
+#   → Pushover notification sent
+#   → This workflow is disabled via GitHub API (no more auto-runs)
+#   → Re-enable manually: Actions tab → ICAI Seat Monitor → ··· → Enable workflow
+#
+# On 0 seats or no records:
+#   → Silent exit — next 5-min run starts automatically
+#
+# Prerequisites:
+#   Repository must be PUBLIC (unlimited free Actions minutes).
+#   Set in Settings → Secrets and variables → Actions:
+#     PUSHOVER_USER   (your Pushover User Key)
+#     PUSHOVER_TOKEN  (your Pushover Application API Token)
+
 name: ICAI Seat Monitor
 
 on:
-  #schedule:
-    # Runs at the start of every hour
-    #- cron: "0 * * * *"
-  workflow_dispatch: # Manual trigger
+  schedule:
+    - cron: "*/5 * * * *"   # Every 5 minutes
+  workflow_dispatch:         # Manual trigger for testing
+
+# Required for the script to disable this workflow via GitHub API
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   check-seats:
     runs-on: ubuntu-latest
-    # Added a timeout so the job doesn't hang forever
-    timeout-minutes: 60 
+    timeout-minutes: 10   # Single check should never need more than this
 
     steps:
+      # ── Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      # ── Python ──────────────────────────────────────────────────────────
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
+      # ── Cache pip packages ───────────────────────────────────────────────
+      # Avoids re-downloading playwright + requests on every run.
+      # Cache key changes only when requirements.txt changes.
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      # ── Cache Playwright browser ─────────────────────────────────────────
+      # Chromium (~130 MB) is cached after the first run.
+      # Saves ~2 minutes on every subsequent run.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('requirements.txt') }}
+
+      # ── Install Python dependencies ──────────────────────────────────────
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4
+          python -m pip install --upgrade pip
+          pip install playwright requests playwright-stealth
 
+      # ── Install Chromium (only if not cached) ────────────────────────────
+      - name: Install Chromium browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
+
+      # Install system deps only (browser binary already cached) ────────────
+      - name: Install Chromium system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: playwright install-deps chromium
+
+      # ── Run the monitor ──────────────────────────────────────────────────
       - name: Run seat checker
         env:
-          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
+          PUSHOVER_USER:  ${{ secrets.PUSHOVER_USER }}
           PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          GITHUB_TOKEN:   ${{ secrets.GITHUB_TOKEN }}   # Auto-provided by GitHub
         run: python seat_check.py
+
+      # ── Upload screenshot on error ───────────────────────────────────────
+      # Only uploaded when an error_screenshot.png was saved (unexpected errors).
+      # Not uploaded on normal 0-seats / no-records silent exits.
+      - name: Upload error screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot-${{ github.run_number }}
+          path: error_screenshot.png
+          retention-days: 3
+          if-no-files-found: ignore
