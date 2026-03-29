@@ -23,8 +23,8 @@
 name: ICAI Seat Monitor
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"   # Every 5 minutes
+#  schedule:
+ #   - cron: "*/5 * * * *"   # Every 5 minutes
   workflow_dispatch:         # Manual trigger for testing
 
 # Required for the script to disable this workflow via GitHub API
