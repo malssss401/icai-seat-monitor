@@ -22,7 +22,10 @@ import os
 import sys
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+# ── IST = UTC + 5:30 ──────────────────────────────────────────────────────────
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 URL         = "https://www.icaionlineregistration.org/launchbatchdetail.aspx"
@@ -40,7 +43,7 @@ GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "")   # e.g. "yourname/i
 WORKFLOW_FILE     = "monitor.yml"                              # must match your workflow filename
 
 # ── Run timestamp (UTC) ────────────────────────────────────────────────────────
-RUN_TIME = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+RUN_TIME = datetime.now(IST).strftime("%d-%m-%Y %I:%M %p IST")
 
 
 # ── Stealth loader ─────────────────────────────────────────────────────────────
